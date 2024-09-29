@@ -7,11 +7,21 @@
 
 #include <WiFiManager.h>  // library https://github.com/tzapu/WiFiManager WiFi Configuration Magic
 #include "WiFiClientSecure.h"
+
+
+#ifdef ESP32
+  #include <SPIFFS.h>
+#endif
+#include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
+
 // WiFiFlientSecure for SSL/TLS support
 WiFiClientSecure client;
 
 // Set web server port number to 80
 WiFiServer server(9000);
+
+
+
 
 // Variable to store the HTTP request
 String header;
@@ -22,8 +32,6 @@ unsigned long currentTime = millis();
 unsigned long previousTime = 0; 
 // Define timeout time in milliseconds (example: 2000ms = 2s)
 const long timeoutTime = 2000;
-
-
 
 char* apname = "ap_config_me";
 bool configMode = true;
@@ -37,6 +45,7 @@ void setup() {
   Serial.begin(9600);
   Serial.println("in setup");
 
+  config_file_setup();
   wifiManager_setup();
   webserver_setup();
 
@@ -148,6 +157,92 @@ void webserver_loop() {
 
 }
 
+/*********************************
+ * CONFIG FILE FUNCTIONS
+ */
+
+DynamicJsonDocument json(1024);
+bool json_loaded = false;
+void config_file_setup(){
+  Serial.println("config_file_setup");
+  open_config_file();
+  Serial.println(get_config_value_string("foo"));
+  Serial.println(get_config_value_int("bar"));
+ // set_config_value_string("foo", "you");
+  set_config_value_int("bar", 7);
+  save_config_file();
+}
+
+void open_config_file(){
+  if (SPIFFS.begin()) {
+    Serial.println("mounted file system");
+    if (SPIFFS.exists("/config.json")) {
+      //file exists, reading and loading
+      Serial.println("reading config file");
+      File configFile = SPIFFS.open("/config.json", "r");
+      if (configFile) {
+        Serial.println("opened config file");
+        size_t size = configFile.size();
+        // Allocate a buffer to store contents of the file.
+        std::unique_ptr<char[]> buf(new char[size]);
+
+        configFile.readBytes(buf.get(), size);
+        auto deserializeError = deserializeJson(json, buf.get());
+        serializeJson(json, Serial);
+        if ( ! deserializeError ) {
+          Serial.println("\nparsed json");
+        } else {
+          Serial.println("failed to load json config");
+        }
+        configFile.close();
+        json_loaded = true;
+      }
+    }else{
+      Serial.println("no config.json file found");
+    }
+  } else {
+    Serial.println("failed to mount FS");
+  }
+}
+
+void save_config_file(){
+  File configFile = SPIFFS.open("/config.json", "w");
+  if (!configFile) {
+    Serial.println("failed to open config file for writing");
+  }
+  Serial.println("saving config.json");
+  serializeJson(json, Serial); // this jsut writes the json to Serial out
+  serializeJson(json, configFile);
+  configFile.close();
+}
+
+void delete_config_file(){
+  // unco/*mment this to actxually run the code
+  Serial.println("deleting all stored SSID credentials");
+  if (!SPIFFS.begin(true)) {
+    Serial.println("An Error has occurred while mounting SPIFFS");
+    return;
+  }  
+  SPIFFS.remove("/config.json");
+}
+
+
+String get_config_value_string(String varname){
+  return json[varname];
+}
+
+void set_config_value_string(String varname, String value){
+  json[varname] = value;
+}
+
+
+int get_config_value_int(String varname){
+  return json[varname];
+}
+
+void set_config_value_int(String varname, int value){
+  json[varname] = value;
+}
 
 // a little helper pin that flashes the builin LED some number of times.
 void led_flash(int pin, int onms, int offms, int times){
