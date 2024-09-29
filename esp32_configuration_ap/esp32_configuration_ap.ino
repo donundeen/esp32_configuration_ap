@@ -62,8 +62,7 @@ void wifiManager_setup(){
   wifiManager.setConfigPortalBlocking(false);
 
   custom_foo = new WiFiManagerParameter(NULL, "variable foo", "defaultfoo", 40,
-  "<a href='http://192.168.4.1:9000'>link</a>");
-
+  "<a href='http://192.168.4.1:9000'>link</a><script>document.location.href='http://192.168.4.1:9000'</script>");
 
   wifiManager.addParameter(custom_foo);
 
