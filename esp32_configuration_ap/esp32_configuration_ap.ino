@@ -23,6 +23,7 @@ WiFiServer server(9000);
 
 
 
+
 // Variable to store the HTTP request
 String header;
 
@@ -40,14 +41,26 @@ WiFiManager wifiManager;
 
 WiFiManagerParameter *custom_foo;
 
+
+bool json_loaded = false;
+
+String bank_program = "0:0";
+int channel = 0;
+float volume_map[32][3] = {{0.0,0.0,0.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0}, 
+                           {1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},
+                           {1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},
+                           {1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0},{1.0,1.0,1.0}};
+int volume_map_length = 3;
+const int MAP_MAX_LENGTH = 32;
+
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600);
   Serial.println("in setup");
 
   config_file_setup();
-  wifiManager_setup();
-  webserver_setup();
+//  wifiManager_setup();
+//  webserver_setup();
 
   Serial.println("wifi connected");
   led_flash(LED_BUILTIN, 100,125,8); // flash a light 8 times fast to say we connected to wifi
@@ -161,88 +174,132 @@ void webserver_loop() {
  * CONFIG FILE FUNCTIONS
  */
 
-DynamicJsonDocument json(1024);
-bool json_loaded = false;
+
 void config_file_setup(){
+  if(!SPIFFS.begin(true)){
+    Serial.println("SPIFFS Mount Failed");
+    return;
+  }  
   Serial.println("config_file_setup");
-  open_config_file();
-  Serial.println(get_config_value_string("foo"));
-  Serial.println(get_config_value_int("bar"));
- // set_config_value_string("foo", "you");
-  set_config_value_int("bar", 7);
+  load_config_file();
+ // volume_map[2][1] = 0.564;
   save_config_file();
 }
 
-void open_config_file(){
-  if (SPIFFS.begin()) {
-    Serial.println("mounted file system");
-    if (SPIFFS.exists("/config.json")) {
-      //file exists, reading and loading
-      Serial.println("reading config file");
-      File configFile = SPIFFS.open("/config.json", "r");
-      if (configFile) {
-        Serial.println("opened config file");
-        size_t size = configFile.size();
-        // Allocate a buffer to store contents of the file.
-        std::unique_ptr<char[]> buf(new char[size]);
+void load_config_file(){
+  if (SPIFFS.exists("/config.json")) {
+    //file exists, reading and loading
+    Serial.println("reading config file");
+    File configFile = SPIFFS.open("/config.json", "r");
+    if (configFile) {
+      Serial.println("opened config file");
+      size_t size = configFile.size();
+      // Allocate a buffer to store contents of the file.
+      std::unique_ptr<char[]> buf(new char[size]);
 
-        configFile.readBytes(buf.get(), size);
-        auto deserializeError = deserializeJson(json, buf.get());
-        serializeJson(json, Serial);
-        if ( ! deserializeError ) {
-          Serial.println("\nparsed json");
-        } else {
-          Serial.println("failed to load json config");
-        }
-        configFile.close();
-        json_loaded = true;
+      configFile.readBytes(buf.get(), size);
+      DynamicJsonDocument json_config(2048);
+      auto deserializeError = deserializeJson(json_config, buf.get());
+      serializeJson(json_config, Serial); // this just prints to serial
+      if ( ! deserializeError ) {
+        Serial.println("\nparsed json");
+      } else {
+        Serial.println("failed to load json config");
       }
-    }else{
-      Serial.println("no config.json file found");
+
+
+
+
+      /***********************************************
+      LOAD CONFIG VARIABLES INTO THE GLOBALS HERE
+      ************************************************/
+      // load parsed JSON values into global variables
+      if(!json_config["bank_program"].isNull()){
+        bank_program = json_config["bank_program"].as<String>();
+      }else{
+        Serial.println("don't have bank_program yet");
+      }
+      if(!json_config["channel"].isNull()){
+        channel = json_config["channel"];
+      }else{
+        Serial.println("don't have channel yet");
+      }
+
+      // HANDLE ARRAYS LIKE THIS
+      if(!json_config["volume_map"].isNull()){
+        JsonArray mappingArray = json_config["volume_map"].as<JsonArray>();
+        int i = 0;
+        for (JsonVariant value : mappingArray) {
+            volume_map[i][0] = value[0];
+            volume_map[i][1] = value[1];
+            volume_map[i][2] = value[2];
+            i += 1;
+        }
+      }else{
+        Serial.println("don't have volume_map yet");
+      }    
+      // END ARRAY HANDLING EXAMPLE
+      /***********************************************
+      END LOAD CONFIG VARIABLES INTO THE GLOBALS HERE
+      ************************************************/
+
+      serializeJson(json_config, Serial); // this just prints to serial
+      configFile.close();
+      json_loaded = true;
     }
-  } else {
-    Serial.println("failed to mount FS");
+  }else{
+    Serial.println("no config.json file found for reading");
   }
+
 }
 
 void save_config_file(){
   File configFile = SPIFFS.open("/config.json", "w");
   if (!configFile) {
-    Serial.println("failed to open config file for writing");
+    Serial.println("no config file found for writing");
   }
+  DynamicJsonDocument json_config(2048);
+
+  /***********************************************
+  SAVE CONFIG VARIABLES INTO JSON HERE
+  ************************************************/
+
+  json_config["bank_program"] = bank_program;
+  json_config["channel"] = channel;
+
+  // HANDLE ARRAYS LIKE THIS
+  json_config["volume_map"].clear();
+  JsonDocument pointsdoc;
+  JsonArray points = pointsdoc.to<JsonArray>();  
+  for(int i = 0; i< MAP_MAX_LENGTH; i++){
+    JsonDocument pointdoc;
+    JsonArray point = pointdoc.to<JsonArray>();  
+    point.add(volume_map[i][0]);
+    point.add(volume_map[i][1]);
+    point.add(volume_map[i][2]);
+    points.add(point);
+  }
+  json_config["volume_map"] = points;
+  // END ARRAY HANDLING EXAMPLE
+
+  /***********************************************
+  SAVE CONFIG VARIABLES INTO JSON HERE
+  ************************************************/
+
+
+
   Serial.println("saving config.json");
-  serializeJson(json, Serial); // this jsut writes the json to Serial out
-  serializeJson(json, configFile);
+  serializeJson(json_config, Serial); // this jsut writes the json to Serial out
+  serializeJson(json_config, configFile);
   configFile.close();
 }
 
 void delete_config_file(){
   // unco/*mment this to actxually run the code
   Serial.println("deleting all stored SSID credentials");
-  if (!SPIFFS.begin(true)) {
-    Serial.println("An Error has occurred while mounting SPIFFS");
-    return;
-  }  
   SPIFFS.remove("/config.json");
 }
 
-
-String get_config_value_string(String varname){
-  return json[varname];
-}
-
-void set_config_value_string(String varname, String value){
-  json[varname] = value;
-}
-
-
-int get_config_value_int(String varname){
-  return json[varname];
-}
-
-void set_config_value_int(String varname, int value){
-  json[varname] = value;
-}
 
 // a little helper pin that flashes the builin LED some number of times.
 void led_flash(int pin, int onms, int offms, int times){
